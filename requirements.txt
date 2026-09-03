@@ -1,0 +1,39 @@
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic>=2.11.0
+pydantic-settings==2.7.1
+
+# Database
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# Azure
+openai>=1.0.0
+azure-storage-blob==12.24.0
+
+# Vector Search
+qdrant-client>=1.7.0
+
+# Celery / Redis
+celery[redis]==5.4.0
+redis==5.2.1
+
+# Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.20
+
+# Utilities
+python-dotenv==1.0.1
+PyMuPDF==1.25.2
+python-docx==1.1.2
+psycopg[binary]
+greenlet
+langsmith>=0.1.0
+langchain-core>=0.3.0
+langgraph>=0.2.0
+langchain-openai>=0.2.0
+langchain-mcp-adapters>=0.3.0
+mcp>=1.1.0

@@ -1,0 +1,71 @@
+# ===========================================
+# Git
+# ===========================================
+.git/
+.gitignore
+.gitattributes
+
+# ===========================================
+# Python / virtualenv (also local dev)
+# ===========================================
+venv/
+venv-*/
+.venv/
+.python-version
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# ===========================================
+# Editors / OS
+# ===========================================
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ===========================================
+# Secrets & local config — NEVER bake into image
+# ===========================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# ===========================================
+# Logs & runtime data
+# ===========================================
+*.log
+logs/
+*.pid
+
+# ===========================================
+# Streamlit playground (not part of API image)
+# ===========================================
+web_dev_test/
+web_dev_test/**
+
+# ===========================================
+# Tests / dev-only scripts
+# ===========================================
+test_*.py
+tests/
