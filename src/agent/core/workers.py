@@ -135,17 +135,24 @@ async def _guarded_tools_node(tools: list, state: DeepAIState) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Map of read tool name → state flag to set (agent pauses for user selection).
-# Only PICK_TOOLS that are CALLED BY DeepsaleopsAgent force a click-option card.
-# DeeptraceAgent calls these tools for *informational* queries (e.g. "thông
-# tin sản phẩm gạo jasmine") and the LLM is expected to summarize results
-# as Markdown without requiring the user to pick.
+# Both agents use these tools in different modes:
+#  - DeepsaleopsAgent: needs a CLICKABLE option card (e.g. "pick variant X to
+#    add to cart", "pick address Y to ship to"). Force pause.
+#  - DeeptraceAgent:   uses these tools for *informational* queries (e.g. "thông
+#    tin lô hàng của sản phẩm Gạo Jasmine") and the LLM is expected to summarize
+#    results as Markdown — no need to pause and force the user to click.
+#
+# So the PICK behavior is per-agent (see _detect_pick_after_tools below).
 PICK_TOOLS = {
     "list_on_sale_product_variants": "pick_variant",
     "list_user_addresses": "pick_address",
+    "get_product_batches": "pick_batch",
 }
 
 # Agents whose pickable tools are exposed as click-option cards to the user.
-# DeeptraceAgent is deliberately excluded — it summarizes as plain Markdown.
+# DeeptraceAgent is DELIBERATELY excluded — when its LLM calls
+# get_product_batches (or any other PICK_TOOL), the result is summarized as
+# plain Markdown instead of forcing a click-option card.
 PICK_AGENTS = {"DeepsaleopsAgent"}
 
 
@@ -184,9 +191,10 @@ def _detect_pick_after_tools(state: DeepAIState, agent_name: str) -> str | None:
     """Detect if the most recent tool call is a PICK_TOOL called by an agent
     that is allowed to pause for a user pick.
 
-    Only agents in `PICK_AGENTS` (e.g. DeepsaleopsAgent) trigger the
+    Only agents in `PICK_AGENTS` (DeepsaleopsAgent) trigger the
     click-option card. DeeptraceAgent's calls to the same tools fall through
-    and the LLM summarizes the result as Markdown instead.
+    and the LLM summarizes the result as Markdown instead — the user is NOT
+    forced to click.
 
     Returns the state flag to set on `awaiting_user_pick`, or None.
     """

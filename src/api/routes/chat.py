@@ -246,6 +246,47 @@ def _build_options_from_result(result: dict | None, tool_name: str) -> list[dict
             })
         return options if options else None
 
+    # get_product_batches → show manufacturing batches as options
+    if tool_name == "get_product_batches":
+        # get_product_batches returns a JSON ARRAY (not wrapped in items/data)
+        # — handle both shapes for safety.
+        if isinstance(result, list):
+            batches = result
+        elif isinstance(result, dict):
+            batches = (
+                result.get("items")
+                or result.get("data")
+                or result.get("batches")
+                or []
+            )
+        else:
+            batches = []
+        if not batches:
+            return None
+        for b in batches[:5]:
+            name = b.get("batchName") or b.get("name") or "Lô hàng"
+            stage = b.get("stage") or ""
+            mfg = b.get("manufacturedDate") or ""
+            label = f"{name}" + (f" — {stage}" if stage else "")
+            desc_parts = []
+            if mfg:
+                desc_parts.append(f"NSX: {mfg[:10]}")
+            if b.get("batchPublicId"):
+                desc_parts.append(f"Public ID: {b['batchPublicId']}")
+            desc = " | ".join(desc_parts)
+            options.append({
+                "label": label,
+                "value": str(b.get("batchId") or b.get("id") or ""),
+                "description": desc,
+            })
+        if len(batches) > 5:
+            options.append({
+                "label": f"Xem thêm {len(batches) - 5} lô...",
+                "value": "show_more_batches",
+                "description": "",
+            })
+        return options if options else None
+
     # create_order → return None (simple yes/no)
     if tool_name == "create_order":
         return None
@@ -869,6 +910,7 @@ def _waiting_response(session_id: str, state) -> JSONResponse:
             "pick_variant": "list_on_sale_product_variants",
             "pick_address": "list_user_addresses",
             "pick_sale": "list_sales_for_product",
+            "pick_batch": "get_product_batches",
         }
         pick_tool_name = pick_map.get(pick_flag)
         # place_order uses place_order tool name for meta path
@@ -889,12 +931,14 @@ def _waiting_response(session_id: str, state) -> JSONResponse:
                     "pick_variant": "Dạ, sản phẩm có nhiều biến thể. Quý khách vui lòng chọn 1 biến thể:",
                     "pick_address": "Dạ, quý khách vui lòng chọn địa chỉ giao hàng:",
                     "pick_sale": "Dạ, có nhiều nhân viên kinh doanh. Quý khách vui lòng chọn 1 người phụ trách:",
+                    "pick_batch": "Dạ, sản phẩm có nhiều lô sản xuất. Quý khách vui lòng chọn 1 lô để truy xuất nguồn gốc:",
                 },
                 "en": {
                     "pick_product": "Here are some products. Please pick one:",
                     "pick_variant": "This product has multiple variants. Please pick one:",
                     "pick_address": "Please pick a shipping address:",
                     "pick_sale": "Multiple sale reps available. Please pick one:",
+                    "pick_batch": "This product has multiple manufacturing batches. Please pick one to trace:",
                 }
             }
             display = msg_map.get(user_lang, msg_map["vi"]).get(pick_flag, hil_default_msg())

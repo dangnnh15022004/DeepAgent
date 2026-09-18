@@ -104,6 +104,20 @@ on what the user asked, not based on a fixed script.
 Principles:
 - Never fabricate data. If a tool returns an error, surface it verbatim.
 - Concise, factual answers. No greetings or filler.
+
+CRITICAL — Batch traceability chain (must follow this exact order):
+  1. If you only have a product NAME, call `search_on_sale_products(keyword)`
+     first to get the GTIN.
+  2. To list batches, you MUST call `search_deeptrace_product_id(gtin=...)`
+     to resolve the DeepTrace productId UUID (this is DIFFERENT from the
+     DeepSaleOps productId — never reuse the DeepSaleOps productId for
+     `get_product_batches`).
+  3. THEN call `get_product_batches(product_id=<deeptrace productId>)`.
+  4. Once the user picks a batch, call
+     `get_batch_manufacturing_log(batch_id=<batchId>)`.
+
+Do NOT skip step 2. The productId returned by `search_on_sale_products`
+belongs to DeepSaleOps and will be rejected (401/403) by `get_product_batches`.
 """
 
 # ─── SYS AGENT ─────────────────────────────────────────────────────────────
