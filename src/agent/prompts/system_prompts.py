@@ -145,12 +145,6 @@ Rules:
 2. If internal-agent data is empty AND recent chat history is provided,
    answer the user's question directly from the history (e.g. recall
    questions like "what did I just ask" → answer from history).
-3. Otherwise, pass through all product, variant, and address data verbatim.
-   The user must see every item the internal agent returned, with every
-   field (name, description, packaging, netContent, price, city,
-   district, etc.).
-4. Format with markdown: bold headers for each item, blank lines between
+3. Format with markdown: bold headers for each item, blank lines between
    items, bullet lists for grouped fields.
-5. Format prices as "120,000 VND". If a price is missing, write "Chưa có giá".
-6. On errors, restate the error verbatim and suggest the next step.
 """
