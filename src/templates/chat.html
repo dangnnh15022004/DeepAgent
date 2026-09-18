@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepAgent — Chat</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    header {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    header .brand {
+      font-size: 18px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    header .user-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header .user-email { font-size: 13px; color: #94a3b8; }
+    #logout-btn {
+      padding: 6px 14px;
+      background: transparent;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      color: #94a3b8;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #logout-btn:hover { border-color: #ef4444; color: #ef4444; }
+    #session-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #session-row label {
+      font-size: 12px;
+      color: #64748b;
+      white-space: nowrap;
+    }
+    #session-id-input {
+      width: 180px;
+      padding: 4px 10px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #94a3b8;
+      font-size: 12px;
+      font-family: monospace;
+      outline: none;
+    }
+    #session-id-input:focus {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 2px rgba(56,189,248,0.15);
+    }
+    #new-chat-btn {
+      padding: 4px 12px;
+      background: #0ea5e9;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #new-chat-btn:hover { background: #0284c7; }
+
+    /* ── Messages ────────────────────────────────────────── */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .msg {
+      max-width: 720px;
+      width: 100%;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+
+    .msg.user { align-self: flex-end; }
+    .msg.assistant { align-self: flex-start; }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user .bubble {
+      background: #0ea5e9;
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.assistant .bubble {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg .time {
+      font-size: 11px;
+      color: #475569;
+      margin-top: 4px;
+      padding: 0 4px;
+    }
+    .msg.user .time { text-align: right; }
+
+    .typing {
+      display: none;
+      align-self: flex-start;
+    }
+    .typing.visible { display: block; }
+    .typing .bubble {
+      color: #64748b;
+      font-style: italic;
+    }
+    .dots::after { content: ''; animation: dots 1.2s infinite; }
+    @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+
+    /* ── Confirmation card ────────────────────────────────── */
+    .confirm-card {
+      background: #1e293b;
+      border: 1px solid #38bdf8;
+      border-radius: 12px;
+      padding: 16px;
+      max-width: 600px;
+      width: 100%;
+      align-self: center;
+      margin: 8px 0;
+    }
+    .confirm-card p { font-size: 14px; color: #e2e8f0; margin-bottom: 14px; }
+    .confirm-card .actions { display: flex; gap: 10px; }
+    .confirm-card button {
+      flex: 1;
+      padding: 9px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.2s;
+    }
+    .confirm-card button:hover { opacity: 0.85; }
+    .confirm-card .btn-yes { background: #16a34a; color: #fff; }
+    .confirm-card .btn-no  { background: #dc2626; color: #fff; }
+
+    /* ── Input area ──────────────────────────────────────── */
+    #input-area {
+      background: #1e293b;
+      border-top: 1px solid #334155;
+      padding: 16px 24px;
+      flex-shrink: 0;
+    }
+    #input-row {
+      display: flex;
+      gap: 10px;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    #msg-input {
+      flex: 1;
+      padding: 12px 16px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      color: #f1f5f9;
+      font-size: 15px;
+      resize: none;
+      max-height: 120px;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    #msg-input:focus { border-color: #38bdf8; }
+    #msg-input::placeholder { color: #475569; }
+    #send-btn {
+      padding: 12px 20px;
+      background: #0ea5e9;
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+    #send-btn:hover { background: #0284c7; }
+    #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Auth gate ────────────────────────────────────────── */
+    #auth-gate {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 16px;
+      color: #64748b;
+    }
+    #auth-gate.visible { display: flex; }
+    #auth-gate a {
+      color: #38bdf8;
+      text-decoration: none;
+      font-size: 15px;
+    }
+    #auth-gate a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<!-- Auth gate (shown when not logged in) -->
+<div id="auth-gate">
+  <p>Bạn chưa đăng nhập.</p>
+  <a href="/login">Đăng nhập ngay</a>
+</div>
+
+<!-- Chat UI (hidden until auth check passes) -->
+<div id="chat-ui" style="display:none; flex-direction:column; height:100vh;">
+
+  <header>
+    <span class="brand">DeepAgent</span>
+    <div class="user-info">
+      <div id="session-row">
+        <label>Session:</label>
+        <input type="text" id="session-id-input" placeholder="auto" />
+        <button id="new-chat-btn">New Chat</button>
+      </div>
+      <span class="user-email" id="user-email"></span>
+      <button id="logout-btn">Đăng xuất</button>
+    </div>
+  </header>
+
+  <div id="messages">
+    <!-- Typing indicator -->
+    <div class="msg assistant typing" id="typing-msg">
+      <div class="bubble"><span class="dots">Đang trả lời</span></div>
+    </div>
+  </div>
+
+  <!-- Confirmation card (hidden by default) -->
+  <div id="confirm-box" class="confirm-card" style="display:none; align-self:center; flex-direction:column; gap:12px; min-width:320px;">
+    <p id="confirm-message" style="margin:0; font-weight:600;"></p>
+    <div id="confirm-options"></div>
+    <div class="actions" id="confirm-actions">
+      <button class="btn-no" id="btn-no">Không</button>
+      <button class="btn-yes" id="btn-yes">Đồng ý</button>
+    </div>
+  </div>
+
+  <div id="input-area">
+    <div id="input-row">
+      <textarea id="msg-input" rows="1" placeholder="Nhắn tin cho DeepAgent..."></textarea>
+      <button id="send-btn" onclick="doSend()">Gửi</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+  marked.setOptions({ breaks: true, gfm: true });
+  const API_BASE = window.location.origin;
+  let SESSION_TOKEN = localStorage.getItem('session_token');
+  let PENDING_ACTION = null;
+
+  /* ── Auth helpers ─────────────────────────────────────── */
+  function requireAuth() {
+    if (!SESSION_TOKEN) {
+      document.getElementById('auth-gate').classList.add('visible');
+      return false;
+    }
+    return true;
+  }
+
+  /* ── Session ID helpers ──────────────────────────────── */
+  function getSessionId() {
+    const val = document.getElementById('session-id-input').value.trim();
+    return val || localStorage.getItem('last_session_id') || 'default';
+  }
+
+  function saveSessionId(id) {
+    if (id && id !== 'default') {
+      localStorage.setItem('last_session_id', id);
+    }
+    document.getElementById('session-id-input').value = id;
+  }
+
+  /* ── Boot ──────────────────────────────────────────────── */
+  async function init() {
+    if (!requireAuth()) return;
+
+    // Restore last session ID
+    saveSessionId(localStorage.getItem('last_session_id') || '');
+
+    // Load user info
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/me`, {
+        headers: { 'Authorization': `Session ${SESSION_TOKEN}` }
+      });
+      if (!res.ok) throw new Error('Session invalid');
+      const me = await res.json();
+      document.getElementById('user-email').textContent = me.email;
+    } catch {
+      logout();
+      return;
+    }
+
+    document.getElementById('chat-ui').style.display = 'flex';
+    setTimeout(() => document.getElementById('msg-input').focus(), 50);
+  }
+
+  /* ── Chat helpers ──────────────────────────────────────── */
+  function renderMessageText(text, role) {
+    // bot reply → markdown (render bold/list/newline), user → escape HTML.
+    if (role === 'user') return escapeHtml(text);
+    try { return marked.parse(text); } catch { return escapeHtml(text); }
+  }
+
+  function addMessage(role, text) {
+    const msgs = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    const time = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    div.innerHTML = `<div class="bubble">${renderMessageText(text, role)}</div><div class="time">${time}</div>`;
+    msgs.insertBefore(div, document.getElementById('typing-msg'));
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function setTyping(on) {
+    document.getElementById('typing-msg').classList.toggle('visible', on);
+    if (on) {
+      const msgs = document.getElementById('messages');
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+  }
+
+  function showConfirm(message, options) {
+    document.getElementById('confirm-message').textContent = message;
+    const optContainer = document.getElementById('confirm-options');
+    const actionsDiv = document.getElementById('confirm-actions');
+    optContainer.innerHTML = '';
+
+    if (options && options.length > 0) {
+      options.forEach((opt, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'option-btn';
+        btn.style.cssText = 'width:100%; padding:10px 14px; border:1px solid #e0e0e0; border-radius:8px; background:#f8f9fa; cursor:pointer; text-align:left; font-size:14px; margin-bottom:6px; transition:all 0.15s;';
+        btn.innerHTML = `<strong>${opt.label}</strong>${opt.description ? '<br><small style="color:#666;">' + escapeHtml(opt.description) + '</small>' : ''}`;
+        btn.addEventListener('mouseenter', () => btn.style.background = '#e9ecef');
+        btn.addEventListener('mouseleave', () => btn.style.background = '#f8f9fa');
+        btn.addEventListener('click', () => selectOption(opt));
+        optContainer.appendChild(btn);
+      });
+      // Hide simple Yes/No when options exist
+      actionsDiv.style.display = 'none';
+    } else {
+      actionsDiv.style.display = 'flex';
+    }
+
+    document.getElementById('confirm-box').style.display = 'flex';
+    document.getElementById('msg-input').disabled = true;
+    document.getElementById('send-btn').disabled = true;
+  }
+
+  function selectOption(opt) {
+    addMessage('user', opt.label);
+    hideConfirm();
+    sendMessage(opt.value, true);
+  }
+
+  function hideConfirm() {
+    document.getElementById('confirm-box').style.display = 'none';
+    document.getElementById('confirm-options').innerHTML = '';
+    document.getElementById('confirm-actions').style.display = 'flex';
+    document.getElementById('msg-input').disabled = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('msg-input').focus();
+    PENDING_ACTION = null;
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
+  }
+
+  async function sendMessage(text, isResume = false) {
+    console.log('[chat] sending:', text, 'isResume:', isResume);
+    setTyping(true);
+    const sid = getSessionId();
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Session ${SESSION_TOKEN}`,
+        },
+        body: JSON.stringify({
+          message: text,
+          session_id: sid,
+          is_resume: isResume,
+        }),
+      });
+
+      console.log('[chat] response status:', res.status);
+      if (res.status === 401) {
+        logout();
+        return;
+      }
+
+      const data = await res.json();
+      console.log('[chat] response data:', data);
+
+      setTyping(false);
+
+      if (data.status === 'WAITING_CONFIRMATION') {
+        // User already asked to do the action — skip the confirm modal and
+        // auto-send "Đồng ý" so the flow keeps moving.
+        const payload = data.interrupt_payload || {};
+        PENDING_ACTION = payload;
+        addMessage('assistant', data.reply || 'Đang xử lý...');
+        setTimeout(() => sendMessage('Đồng ý', true), 0);
+      } else if (data.status === 'WAITING_USER_PICK') {
+        const payload = data.interrupt_payload || {};
+        const options = payload.options || null;
+        PENDING_ACTION = payload;
+        if (options && options.length > 0) {
+          // Render options as plain text in chat (no buttons, no modal).
+          // User just types their pick; the LLM resolves it from context.
+          const lines = options.map((o, i) => {
+            let s = `  **${i + 1}.** ${escapeHtml(o.label)}`;
+            if (o.description && o.description !== o.label) {
+              s += `  \n     ${escapeHtml(o.description)}`;
+            }
+            if (o.value) {
+              s += `  \n     _id: \`${escapeHtml(o.value)}\`_`;
+            }
+            return s;
+          }).join('\n');
+          const fullMsg = `${escapeHtml(data.reply)}\n\n${lines}\n\n👉 _Trả lời bằng số thứ tự, tên, hoặc ID để chọn._`;
+          addMessage('assistant', fullMsg);
+        } else {
+          // No options but WAITING_USER_PICK → show as message only
+          addMessage('assistant', data.reply);
+        }
+      } else if (data.status === 'success') {
+        addMessage('assistant', data.reply);
+        // Auto-save session ID from response
+        if (data.session_id) saveSessionId(data.session_id);
+      } else if (data.status === 'no_pending_action') {
+        addMessage('assistant', data.reply || 'Không có thao tác đang chờ.');
+      } else {
+        addMessage('assistant', data.detail || JSON.stringify(data));
+      }
+    } catch (err) {
+      setTyping(false);
+      console.error('[chat] error:', err);
+      addMessage('assistant', 'Lỗi kết nối: ' + err.message);
+    }
+  }
+
+  /* ── Event listeners ────────────────────────────────────── */
+  const msgInput = document.getElementById('msg-input');
+
+  function doSend() {
+    console.log('[chat] doSend called');
+    const text = msgInput.value.trim();
+    if (!text) { console.log('[chat] empty, skipped'); return; }
+    addMessage('user', text);
+    msgInput.value = '';
+    msgInput.style.height = 'auto';
+    sendMessage(text, false);
+  }
+
+  msgInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      doSend();
+    }
+  });
+  msgInput.addEventListener('input', () => {
+    msgInput.style.height = 'auto';
+    msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
+  });
+
+  document.getElementById('btn-yes').addEventListener('click', () => {
+    hideConfirm();
+    addMessage('user', 'Đồng ý');
+    sendMessage('Đồng ý', true);
+  });
+
+  document.getElementById('btn-no').addEventListener('click', () => {
+    hideConfirm();
+    addMessage('user', 'Không');
+    sendMessage('Không', true);
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    fetch(`${API_BASE}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: { 'Authorization': `Session ${SESSION_TOKEN}` }
+    }).catch(() => {});
+    logout();
+  });
+
+  document.getElementById('new-chat-btn').addEventListener('click', () => {
+    // Clear messages and start fresh session
+    const msgs = document.getElementById('messages');
+    // Keep only the typing indicator
+    const typing = document.getElementById('typing-msg');
+    msgs.innerHTML = '';
+    msgs.appendChild(typing);
+    // Generate new session ID
+    const newId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    saveSessionId(newId);
+    PENDING_ACTION = null;
+    hideConfirm();
+  });
+
+  function logout() {
+    localStorage.removeItem('session_token');
+    localStorage.removeItem('user_email');
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('last_session_id');
+    SESSION_TOKEN = null;
+    window.location.href = `${API_BASE}/login`;
+  }
+
+  init();
+</script>
+
+</body>
+</html>

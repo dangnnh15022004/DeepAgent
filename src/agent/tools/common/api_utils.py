@@ -1,88 +1,132 @@
-"""Shared API utilities for all DeepAgent MCP servers."""
+"""DeepAgent API utilities — shared for all MCP servers.
+
+The DeepSalesOps dev backend issues JWT via HttpOnly cookies (`deeptrace_at`,
+`deeptrace_rt`), not in the response body. We therefore maintain a process-wide
+cookie jar that gets populated on first login and reused across requests.
+"""
 
 import json
+import threading
+
 import httpx
 
-def get_api_base_url() -> str:
-    """Base URL for the DeepTrace backend."""
-    return "https://dev-api-deeptrace.deepprotech.com"
+BASE_URL = "https://deepsalesops-dev-api.deep.com.vn/api"
+LOGIN_URL = "https://deepsalesops-dev-api.deep.com.vn/api/v1/auth/login"
+
 
 def get_timeout() -> float:
     return 120.0
 
-def get_auth_headers(access_token: str) -> dict:
-    return {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9,vi;q=0.8",
-        "Connection": "keep-alive",
-        # Giả lập trình duyệt Chrome trên macOS để bypass WAF/Firewall
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    }
 
-async def api_get(path: str, access_token: str, params: dict = None) -> str:
-    base = get_api_base_url()
-    timeout = get_timeout()
+# ── Cookie jar (process-wide, lazy login) ──────────────────────────────────
+_jar: dict[str, str] = {}
+_jar_lock = threading.Lock()
+_logged_in = False
+_current_user_id: str = ""
+
+
+def _save_cookies(client: httpx.AsyncClient) -> None:
+    """Persist cookies from a client response into the in-memory jar."""
+    with _jar_lock:
+        for name, value in client.cookies.items():
+            _jar[name] = value
+        global _logged_in
+        if _jar:
+            _logged_in = True
+
+
+def _build_client() -> httpx.AsyncClient:
+    """Build a client preloaded with cookies from the jar."""
+    c = httpx.AsyncClient(timeout=get_timeout(), verify=False)
+    if _jar:
+        c.cookies.update(_jar)
+    return c
+
+
+def _ensure_login() -> None:
+    """Trigger a fresh login (using a hardcoded test credential) when the jar
+    is empty. Backend dev accepts only a fixed user for cookie issuance; we
+    bake those creds in here so the rest of the app stays credential-free.
+    The login response also carries the userId (in body) — we cache it so
+    order-creation calls can pass it as required by the backend contract.
+    """
+    global _logged_in, _current_user_id
+    with _jar_lock:
+        if _logged_in and "deeptrace_at" in _jar:
+            return
+        _logged_in = False
+        _jar.clear()
+        _current_user_id = ""
+
     try:
-        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+        with httpx.Client(timeout=30.0, verify=False) as c:
+            res = c.post(
+                LOGIN_URL,
+                json={"email": "sale.demo@deeptrace.com", "password": "testPassword@2003"},
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+        if res.status_code == 200:
+            for name, value in res.cookies.items():
+                _jar[name] = value
+            with _jar_lock:
+                _logged_in = bool(_jar)
+            # Backend puts userId in the login body, not in a JWT we can decode.
+            try:
+                data = res.json()
+                _current_user_id = str(data.get("userId") or "")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def get_current_user_id() -> str:
+    """Return the userId from the most recent successful login."""
+    if not _jar:
+        _ensure_login()
+    return _current_user_id
+
+
+def get_auth_headers(_unused_access_token: str = "") -> dict:
+    """Build request headers. Cookie is attached via the client jar, not
+    headers, so this only returns the Content-Type."""
+    return {"Content-Type": "application/json", "Accept": "application/json"}
+
+
+async def api_get(path: str, access_token: str = "", params: dict = None) -> str:
+    if not _jar:
+        _ensure_login()
+    try:
+        async with _build_client() as client:
             res = await client.get(
-                base + path,
+                BASE_URL + path,
                 headers=get_auth_headers(access_token),
                 params=params or {},
             )
+        _save_cookies(client)
         if res.status_code == 200:
             return res.text
-        # Surface explicit auth/permission errors so tools/LLM can avoid hallucination
-        if res.status_code == 401:
-            return json.dumps({"error": "AUTHENTICATION_ERROR", "status": 401, "detail": res.text})
-        if res.status_code == 403:
-            return json.dumps({"error": "AUTHORIZATION_ERROR", "status": 403, "detail": res.text})
-        return json.dumps({"error": f"API Error: {res.status_code}", "status": res.status_code, "detail": res.text})
+        return json.dumps({"error": "API Error: " + str(res.status_code), "detail": res.text})
     except httpx.TimeoutException:
         return json.dumps({"error": "Timeout", "detail": "Request timed out"})
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-async def api_post(path: str, access_token: str, json_data: dict = None) -> str:
-    base = get_api_base_url()
-    timeout = get_timeout()
+
+async def api_post(path: str, access_token: str = "", json_data: dict = None) -> str:
+    if not _jar:
+        _ensure_login()
     try:
-        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+        async with _build_client() as client:
             res = await client.post(
-                base + path,
+                BASE_URL + path,
                 headers=get_auth_headers(access_token),
                 json=json_data or {},
             )
-        if res.status_code == 200:
+        _save_cookies(client)
+        if res.status_code in (200, 201):
             return res.text
-        if res.status_code == 401:
-            return json.dumps({"error": "AUTHENTICATION_ERROR", "status": 401, "detail": res.text})
-        if res.status_code == 403:
-            return json.dumps({"error": "AUTHORIZATION_ERROR", "status": 403, "detail": res.text})
-        return json.dumps({"error": f"API Error: {res.status_code}", "status": res.status_code, "detail": res.text})
-    except httpx.TimeoutException:
-        return json.dumps({"error": "Timeout", "detail": "Request timed out"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
-async def api_patch(path: str, access_token: str, json_data: dict = None) -> str:
-    base = get_api_base_url()
-    timeout = get_timeout()
-    try:
-        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
-            res = await client.patch(
-                base + path,
-                headers=get_auth_headers(access_token),
-                json=json_data or {},
-            )
-        if res.status_code == 200:
-            return res.text
-        if res.status_code == 401:
-            return json.dumps({"error": "AUTHENTICATION_ERROR", "status": 401, "detail": res.text})
-        if res.status_code == 403:
-            return json.dumps({"error": "AUTHORIZATION_ERROR", "status": 403, "detail": res.text})
-        return json.dumps({"error": f"API Error: {res.status_code}", "status": res.status_code, "detail": res.text})
+        return json.dumps({"error": "API Error: " + str(res.status_code), "detail": res.text})
     except httpx.TimeoutException:
         return json.dumps({"error": "Timeout", "detail": "Request timed out"})
     except Exception as e:

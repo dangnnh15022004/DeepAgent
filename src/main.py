@@ -1,14 +1,26 @@
 from contextlib import asynccontextmanager
 import os
+from pathlib import Path
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
+# Load .env BEFORE settings is constructed (so POSTGRES_DSN etc. are read).
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path, override=False)
+except ImportError:
+    pass  # python-dotenv not installed; env must be set externally
+
 from src.config.settings import settings
 from src.api.routes.chat import router as chat_router
+from src.api.auth.routes import router as auth_router
 from src.agent.tools.mcp_manager import mcp_manager
+from src.api.db import postgres as db
 
 
 def _configure_langchain_tracing():
@@ -24,7 +36,9 @@ def _configure_langchain_tracing():
 async def lifespan(app: FastAPI):
     _configure_langchain_tracing()
     await mcp_manager.start()
+    await db.init_pool()  # best-effort; logs warning if POSTGRES_DSN unset
     yield
+    await db.close_pool()
     await mcp_manager.stop()
 
 
@@ -88,7 +102,28 @@ async def proxy_image(url: str):
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch image: {e}")
 
+# ── Redirect root to Streamlit UI (HTML UI deprecated) ─────────────────────
+from fastapi.responses import RedirectResponse
+
+
+@app.get("/", tags=["pages"], include_in_schema=False)
+async def root():
+    """Root → redirect to Streamlit UI at port 8501."""
+    return RedirectResponse(url="http://localhost:8501/")
+
+
+@app.get("/login", tags=["pages"], include_in_schema=False)
+async def login_page():
+    return RedirectResponse(url="http://localhost:8501/")
+
+
+@app.get("/chat", tags=["pages"], include_in_schema=False)
+async def chat_page():
+    return RedirectResponse(url="http://localhost:8501/")
+
+
 app.include_router(chat_router)
+app.include_router(auth_router)
 
 
 if __name__ == "__main__":

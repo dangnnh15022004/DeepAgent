@@ -2,7 +2,7 @@ import asyncio
 import httpx
 
 async def test_api():
-    url = "https://dev-api-deeptrace.deepprotech.com/api/v1/product/search"
+    url = "https://deepsalesops-dev-api.deep.com.vn/api/v1/product/search"
     
     # Token bạn vừa cung cấp
     token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkZWVwdHJhY2VfdXNlcklkIjoiZGE4MDJkNDktYjE0Ni00MzExLTk2YjQtMGE5NDIwYmFhNzkwIiwiZGVlcHRyYWNlX2VtYWlsIjoibXlwaGFtYXZhdGFydmlldG5hbUBnbWFpbC5jb20iLCJkZWVwdHJhY2Vfcm9sZSI6Ik1hbnVmYWN0dXJlciIsImV4cCI6MTc4Nzk5MjU4NSwiaXNzIjoiRGVlcFRyYWNlRGV2ZWxvcG1lbnQiLCJhdWQiOiJEZWVwVHJhY2VBdWRpZW5jZSJ9.zTW3q_69XokRC6ZR5T3lHyg46QrvVSUepu2f3QY4oko"
@@ -13,8 +13,8 @@ async def test_api():
         "Content-Type": "application/json",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9,vi;q=0.8",
-        "Origin": "https://dev-api-deeptrace.deepprotech.com",
-        "Referer": "https://dev-api-deeptrace.deepprotech.com/swagger/index.html",
+        "Origin": "https://deepsalesops-dev-api.deep.com.vn",
+        "Referer": "https://deepsalesops-dev-api.deep.com.vn/swagger/index.html",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",

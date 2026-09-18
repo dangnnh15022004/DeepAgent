@@ -1,119 +1,41 @@
+"""MCP Manager — manages connections and tools from MCP servers."""
+
 import os
-import sys
-from contextvars import ContextVar
-from typing import Any
+import signal
+import subprocess
 
-from langchain_mcp_adapters.interceptors import (
-    MCPToolCallRequest,
-    MCPToolCallResult,
-)
-from langchain_mcp_adapters.sessions import (
-    Connection,
-    StdioConnection,
-    create_session,
-)
-from langchain_mcp_adapters.tools import (
-    convert_mcp_tool_to_langchain_tool,
-)
-from langchain_core.tools import BaseTool
-
+from langchain_mcp_adapters.sessions import StdioConnection
+from langchain_mcp_adapters.tools import load_mcp_tools
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
 
-# Bound per request from the worker nodes; the LLM never reads this nor
-# composes it into a tool call. This is the single source of truth for the JWT
-# used by every MCP tool — eliminating the "LLM paraphrases the token" failure
-# mode that caused the intermittent 401s on Deeptrace calls.
-_access_token_ctx: ContextVar[str] = ContextVar("deeptrace_access_token", default="")
+MCP_SERVERS = [
+    ("deeptrace", "src.agent.tools.deeptrace_mcp_server"),
+    ("system", "src.agent.tools.system_mcp_server"),
+    ("deepsaleops", "src.agent.tools.deepsaleops_mcp_server"),
+]
 
 
-def _load_mcp_server(module: str) -> StdioConnection:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = PROJECT_ROOT
+def _kill_orphan_subprocesses():
+    """Kill any leftover MCP server subprocesses from a previous server start.
 
-    return StdioConnection(
-        transport="stdio",
-        command=sys.executable,
-        args=["-m", f"src.agent.tools.{module}"],
-        cwd=PROJECT_ROOT,
-        env=env,
-    )
-
-
-async def _token_injector(
-    request: MCPToolCallRequest,
-    handler,
-) -> MCPToolCallResult:
+    langchain_mcp_adapters' load_mcp_tools uses `async with create_session(...)`
+    which closes the client session but the stdio subprocess may keep running.
+    After uvicorn --reload, multiple stale subprocesses can pile up, all bound
+    to the same port. Kill them all to ensure a clean slate.
     """
-    Interceptor that injects the current request's access_token into the
-    MCP tool call args before it reaches the server.
-    """
-    if "access_token" not in request.args:
-        request = request.override(args={**request.args, "access_token": _access_token_ctx.get()})
-    return await handler(request)
-
-
-def _strip_access_token_from_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of an MCP JSON schema with the `access_token` field removed."""
-    if not isinstance(schema, dict):
-        return schema
-    properties = schema.get("properties", {})
-    cleaned_props = {k: v for k, v in properties.items() if k != "access_token"}
-    required = [r for r in schema.get("required", []) if r != "access_token"]
-    new_schema = dict(schema)
-    new_schema["properties"] = cleaned_props
-    if required:
-        new_schema["required"] = required
-    else:
-        new_schema.pop("required", None)
-    return new_schema
-
-
-async def load_tools_clean(connection: Connection, server_name: str) -> list[BaseTool]:
-    """
-    Load MCP tools with two safety nets:
-      1. `access_token` is removed from the JSON schema, so the LLM never sees it
-         as a tool argument it must supply.
-      2. A `token_injector` interceptor fills in the token from the per-request
-         ContextVar right before the MCP server call is made.
-    """
-    async with create_session(connection) as session:
-        await session.initialize()
-
-        cursor = None
-        mcp_tools = []
-        while True:
-            page = await session.list_tools(cursor=cursor)
-            mcp_tools.extend(page.tools)
-            if not page.nextCursor:
-                break
-            cursor = page.nextCursor
-
-        clean_tools = []
-        for t in mcp_tools:
-            stripped_schema = _strip_access_token_from_schema(t.inputSchema or {})
-            try:
-                patched_tool = t.model_copy(update={"inputSchema": stripped_schema})
-            except Exception:
-                from mcp import types as mcp_types
-                patched_tool = mcp_types.Tool(
-                    name=t.name,
-                    description=t.description,
-                    inputSchema=stripped_schema,
-                )
-            clean_tools.append(
-                convert_mcp_tool_to_langchain_tool(
-                    None,
-                    patched_tool,
-                    connection=connection,
-                    server_name=server_name,
-                    tool_interceptors=[_token_injector],
-                )
+    for name, module in MCP_SERVERS:
+        try:
+            subprocess.run(
+                ["pkill", "-9", "-f", module],
+                check=False,
+                timeout=5,
             )
-        return clean_tools
+        except Exception as e:
+            print(f"[MCP MANAGER] pkill {module} failed: {e}")
 
 
 class DeepAIManager:
@@ -121,38 +43,86 @@ class DeepAIManager:
         self.deeptrace_tools: list = []
         self.system_tools: list = []
         self.deepsaleops_tools: list = []
-        self.tools: list = []
-        self._sessions: dict = {}
+
+    async def _load(self, name: str, module: str):
+        try:
+            tools = await load_mcp_tools(
+                None,
+                connection=StdioConnection(
+                    transport="stdio",
+                    command="python3",
+                    args=["-m", module],
+                    cwd=PROJECT_ROOT,
+                    env={**os.environ, "PYTHONPATH": PROJECT_ROOT},
+                ),
+            )
+            print(f"[MCP MANAGER] {name} loaded {len(tools)} tools")
+            return tools
+        except Exception as e:
+            print(f"[MCP MANAGER] {name} load failed: {e}")
+            return []
 
     async def start(self):
-        trace_conn = _load_mcp_server("deeptrace_mcp_server")
-        self.deeptrace_tools = await load_tools_clean(trace_conn, server_name="deeptrace")
-        self._sessions["deeptrace"] = trace_conn
+        # Always clean up any orphans first.
+        _kill_orphan_subprocesses()
 
-        system_conn = _load_mcp_server("system_mcp_server")
-        self.system_tools = await load_tools_clean(system_conn, server_name="system")
-        self._sessions["system"] = system_conn
+        self.deeptrace_tools = await self._load("deeptrace", "src.agent.tools.deeptrace_mcp_server")
+        self.system_tools = await self._load("system", "src.agent.tools.system_mcp_server")
+        self.deepsaleops_tools = await self._load("deepsaleops", "src.agent.tools.deepsaleops_mcp_server")
 
-        self.deepsaleops_tools = []
-        self.tools = self.deeptrace_tools + self.system_tools + self.deepsaleops_tools
+        if not self.deepsaleops_tools:
+            raise RuntimeError(
+                "[MCP MANAGER] deepsaleops_tools is EMPTY — LLM has no tools to call. "
+                "Check that deepsaleops_mcp_server.py starts without errors."
+            )
 
         print(
-            f"[MCP MANAGER] deeptrace={len(self.deeptrace_tools)}, "
+            f"[MCP MANAGER] Started — deeptrace={len(self.deeptrace_tools)}, "
             f"system={len(self.system_tools)}, "
             f"deepsaleops={len(self.deepsaleops_tools)}"
         )
 
-    def bind_access_token(self, token: str):
-        """Bind the access token for the CURRENT async task."""
-        return _access_token_ctx.set(token)
+    async def call_tool(self, server_name: str, tool_name: str, arguments: dict) -> str:
+        """Directly invoke a tool by name, bypassing the LLM. Used by the meta path."""
+        import json
+        tool_map = {
+            "deeptrace": self.deeptrace_tools,
+            "system": self.system_tools,
+            "deepsaleops": self.deepsaleops_tools,
+        }
+        tools = tool_map.get(server_name, [])
+        for tool in tools:
+            if tool.name == tool_name:
+                try:
+                    result = await tool.ainvoke(arguments)
+                    print(f"[MCP MANAGER] call_tool {server_name}.{tool_name} -> type={type(result).__name__}")
+                    print(f"[MCP MANAGER] result preview: {str(result)[:300]}")
+
+                    # langchain_mcp_adapters wraps tool results in MCP content-block format:
+                    #   [{'type': 'text', 'text': '...json string...'}]
+                    # We need to extract the inner text and return it as a JSON string.
+                    if isinstance(result, list) and result:
+                        first = result[0]
+                        if isinstance(first, dict) and first.get("type") == "text":
+                            text = first.get("text", "")
+                            print(f"[MCP MANAGER] extracted MCP text block, len={len(text)}")
+                            return text  # already a JSON string
+
+                    if isinstance(result, str):
+                        return result
+
+                    # Fallback: serialize dict/list
+                    return json.dumps(result, ensure_ascii=False)
+                except Exception as e:
+                    return json.dumps({"error": str(e)})
+        return json.dumps({"error": f"Tool '{tool_name}' not found on server '{server_name}'"})
 
     async def stop(self):
-        for name, session in self._sessions.items():
-            try:
-                await session.__aexit__(None, None, None)
-            except Exception:
-                pass
-        self._sessions.clear()
+        self.deeptrace_tools = []
+        self.system_tools = []
+        self.deepsaleops_tools = []
+        _kill_orphan_subprocesses()
+        print("[MCP MANAGER] Stopped.")
 
 
 mcp_manager = DeepAIManager()

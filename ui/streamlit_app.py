@@ -193,51 +193,21 @@ def _render_chat() -> None:
                         except Exception as e:
                             st.error(f"Lỗi: {e}")
                     st.rerun()
-            # Mock shortcut: skip set_quantity, go straight to creating order
-            st.divider()
-            st.caption("🧪 **Test mode:** bỏ qua nhập qty/email, mock hết")
-            if st.button("🧪 Mock → Tạo order luôn", type="primary", key="mock_btn_qty", use_container_width=True):
+
+        # ── confirm: real confirm only ──────────────────────────────────
+        elif pick_type == "confirm":
+            if st.button("✅ Xác nhận đặt hàng", type="primary", use_container_width=True):
                 st.session_state["pending_action"] = None
-                st.session_state["messages"].append({"role": "user", "content": "Mock tạo order"})
+                st.session_state["messages"].append({"role": "user", "content": "Xác nhận đặt hàng"})
                 with st.chat_message("user"):
-                    st.markdown("🧪 **Mock tạo order**")
-                with st.spinner("Đang tạo đơn (mock)..."):
+                    st.markdown("✅ **Xác nhận đặt hàng**")
+                with st.spinner("Đang tạo đơn..."):
                     try:
-                        resp = _send("Mock tạo order", is_resume=True, meta={"action": "mock_confirm", "state": pending.get("state", "")})
+                        resp = _send("Xác nhận", is_resume=True, meta={"action": "confirm", "state": pending.get("state", "")})
                         _handle_response(resp)
                     except Exception as e:
                         st.error(f"Lỗi: {e}")
                 st.rerun()
-
-        # ── confirm: real confirm + mock shortcut ───────────────────────
-        elif pick_type == "confirm":
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("✅ Xác nhận", type="primary", use_container_width=True):
-                    st.session_state["pending_action"] = None
-                    st.session_state["messages"].append({"role": "user", "content": "Xác nhận đặt hàng"})
-                    with st.chat_message("user"):
-                        st.markdown("✅ **Xác nhận đặt hàng**")
-                    with st.spinner("Đang tạo đơn..."):
-                        try:
-                            resp = _send("Xác nhận", is_resume=True, meta={"action": "confirm", "state": pending.get("state", "")})
-                            _handle_response(resp)
-                        except Exception as e:
-                            st.error(f"Lỗi: {e}")
-                    st.rerun()
-            with col2:
-                if st.button("🧪 Mock tạo luôn", type="secondary", use_container_width=True):
-                    st.session_state["pending_action"] = None
-                    st.session_state["messages"].append({"role": "user", "content": "Mock tạo order"})
-                    with st.chat_message("user"):
-                        st.markdown("🧪 **Mock tạo order**")
-                    with st.spinner("Đang tạo đơn (mock)..."):
-                        try:
-                            resp = _send("Mock tạo order", is_resume=True, meta={"action": "mock_confirm", "state": pending.get("state", "")})
-                            _handle_response(resp)
-                        except Exception as e:
-                            st.error(f"Lỗi: {e}")
-                    st.rerun()
 
         # ── select_*: render each option as a clickable button ──────────
         elif options:

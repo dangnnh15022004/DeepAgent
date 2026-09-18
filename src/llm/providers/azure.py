@@ -9,5 +9,5 @@ llm = AzureChatOpenAI(
     azure_deployment=settings.azure_inference_model,
     api_version="2024-02-15-preview",
     temperature=0.0,
-    max_completion_tokens=8192,
+    max_completion_tokens=16384,
 )

@@ -22,14 +22,35 @@ class DeepAIState(TypedDict):
     extracted_data: dict[str, Any]
     standalone_query: str
     agent_reports: Annotated[list[str], manage_reports]
+    # User language detected by the planner — consumed by the synthesizer.
+    user_lang: Optional[str]
+    # Set to a string like "pick_product" / "pick_variant" / "pick_address"
+    # to indicate the agent is waiting for user to pick from options card.
+    awaiting_user_pick: Optional[str]
 
 
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    is_resume: bool = Field(
+        default=False,
+        description="True when frontend resumes from a LangGraph interrupt.",
+    )
+    meta: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Bypass LLM. When set, the backend directly calls place_order "
+            "with the meta payload and returns the result. Shape: "
+            "{action, state, variant_id, address_id, quantity, email}"
+        ),
+    )
 
 
 class ChatResponse(BaseModel):
     status: str = Field(default="success")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session ID to continue the conversation.",
+    )
     reply: str = Field(..., description="Final answer from the Synthesizer Agent")
     extracted_data: Optional[Dict[str, Any]] = Field(default_factory=dict)

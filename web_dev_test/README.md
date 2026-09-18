@@ -12,7 +12,7 @@ source venv/bin/activate
 uvicorn src.main:app --reload
 ```
 
-Server runs at `http://localhost:8000`. API docs: `http://localhost:8000/docs`
+Server runs at `http://localhost:8001`. API docs: `http://localhost:8001/docs`
 
 ### 2. Start Streamlit
 
@@ -35,7 +35,7 @@ In the sidebar:
 ## API Contract
 
 ```
-POST http://localhost:8000/api/v1/chat
+POST http://localhost:8001/api/v1/chat
 
 Headers:
   Authorization: Bearer <token>
