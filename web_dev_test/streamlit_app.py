@@ -90,14 +90,14 @@ def _logout(session_token: str) -> None:
 
 
 # ── Chat ────────────────────────────────────────────────────────────────────
-def _send(message: str, is_resume: bool = False, meta: dict | None = None) -> Dict[str, Any]:
+def _send(message: str, is_resume: bool = False) -> Dict[str, Any]:
+    """Gửi 1 turn chat. Các HIL action (set_quantity/confirm/select_*) được
+    mô tả trong chính `message` để LLM xử lý; không còn meta bypass nữa."""
     payload: dict[str, Any] = {
         "message": message,
         "session_id": st.session_state["chat_session"],
         "is_resume": is_resume,
     }
-    if meta is not None:
-        payload["meta"] = meta
     with httpx.Client(timeout=120.0, verify=False) as c:
         r = c.post(
             f"{API_BASE}/api/v1/chat",
@@ -184,11 +184,11 @@ def _render_chat() -> None:
                         st.markdown(f"Số lượng: **{qty}**, Email: **{email}**")
                     with st.spinner("Đang xử lý..."):
                         try:
-                            resp = _send(
-                                f"Số lượng {qty}, email {email}",
-                                is_resume=True,
-                                meta={"action": "set_quantity", "state": pending.get("state", ""), "quantity": int(qty), "email": email},
+                            msg = (
+                                f"[HIL set_quantity] quantity={int(qty)} email={email} "
+                                f"state={pending.get('state', '')}"
                             )
+                            resp = _send(msg, is_resume=True)
                             _handle_response(resp)
                         except Exception as e:
                             st.error(f"Lỗi: {e}")
@@ -203,7 +203,8 @@ def _render_chat() -> None:
                     st.markdown("🧪 **Mock tạo order**")
                 with st.spinner("Đang tạo đơn (mock)..."):
                     try:
-                        resp = _send("Mock tạo order", is_resume=True, meta={"action": "mock_confirm", "state": pending.get("state", "")})
+                        msg = f"[HIL mock_confirm] state={pending.get('state', '')}"
+                        resp = _send(msg, is_resume=True)
                         _handle_response(resp)
                     except Exception as e:
                         st.error(f"Lỗi: {e}")
@@ -220,7 +221,8 @@ def _render_chat() -> None:
                         st.markdown("✅ **Xác nhận đặt hàng**")
                     with st.spinner("Đang tạo đơn..."):
                         try:
-                            resp = _send("Xác nhận", is_resume=True, meta={"action": "confirm", "state": pending.get("state", "")})
+                            msg = f"[HIL confirm] state={pending.get('state', '')}"
+                            resp = _send(msg, is_resume=True)
                             _handle_response(resp)
                         except Exception as e:
                             st.error(f"Lỗi: {e}")
@@ -233,7 +235,8 @@ def _render_chat() -> None:
                         st.markdown("🧪 **Mock tạo order**")
                     with st.spinner("Đang tạo đơn (mock)..."):
                         try:
-                            resp = _send("Mock tạo order", is_resume=True, meta={"action": "mock_confirm", "state": pending.get("state", "")})
+                            msg = f"[HIL mock_confirm] state={pending.get('state', '')}"
+                            resp = _send(msg, is_resume=True)
                             _handle_response(resp)
                         except Exception as e:
                             st.error(f"Lỗi: {e}")
@@ -247,9 +250,6 @@ def _render_chat() -> None:
                 desc = o.get("description") or ""
                 btn_label = f"{i}. {label}" + (f" — {desc}" if desc and desc != label and desc != f"ID: {value}" else "")
                 if st.button(btn_label, key=f"opt_{i}_{pick_type}_{value[:8]}", use_container_width=True):
-                    # Build meta based on pick_type so backend knows which
-                    # action to call on place_order state machine.
-                    meta = {"action": pick_type, "state": pending.get("state", "")}
                     field_map = {
                         "select_product": "product_id",
                         "select_variant": "variant_id",
@@ -257,8 +257,8 @@ def _render_chat() -> None:
                         "select_sale": "sale_id",
                     }
                     field = field_map.get(pick_type)
-                    if field:
-                        meta[field] = value
+                    field_part = f" {field}={value}" if field else ""
+                    msg = f"[HIL {pick_type}] state={pending.get('state', '')}{field_part}"
 
                     st.session_state["pending_action"] = None
                     st.session_state["messages"].append({"role": "user", "content": f"Chọn: {label}"})
@@ -266,7 +266,7 @@ def _render_chat() -> None:
                         st.markdown(f"Chọn: **{label}**")
                     with st.spinner("Đang xử lý..."):
                         try:
-                            resp = _send(f"Chọn: {label}", is_resume=True, meta=meta)
+                            resp = _send(msg, is_resume=True)
                             _handle_response(resp)
                         except Exception as e:
                             st.error(f"Lỗi: {e}")
@@ -282,7 +282,8 @@ def _render_chat() -> None:
                         st.markdown("🧪 **Mock → Tạo order**")
                     with st.spinner("Đang tạo đơn (mock)..."):
                         try:
-                            resp = _send("Mock tạo order", is_resume=True, meta={"action": "mock_confirm", "state": pending.get("state", "")})
+                            msg = f"[HIL mock_confirm] state={pending.get('state', '')}"
+                            resp = _send(msg, is_resume=True)
                             _handle_response(resp)
                         except Exception as e:
                             st.error(f"Lỗi: {e}")

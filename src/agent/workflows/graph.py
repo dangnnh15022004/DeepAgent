@@ -57,7 +57,6 @@ if agentic_graph is None:
     _workflow.add_conditional_edges("router_hub", route_to_next_task, router_map)
 
     # Each agent: agent -> tools (if tool_calls) -> decision -> back to agent
-    # OR -> user_input_gate (if place_order returned select_* and we need user pick)
     # OR -> router_hub (if no tool_calls)
     for agent_node, (agent_fn, tools_fn) in agent_node_map.items():
         tools_node = f"{agent_node}Tools"

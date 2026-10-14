@@ -36,14 +36,6 @@ class ChatRequest(BaseModel):
         default=False,
         description="True when frontend resumes from a LangGraph interrupt.",
     )
-    meta: Optional[dict] = Field(
-        default=None,
-        description=(
-            "Bypass LLM. When set, the backend directly calls place_order "
-            "with the meta payload and returns the result. Shape: "
-            "{action, state, variant_id, address_id, quantity, email}"
-        ),
-    )
 
 
 class ChatResponse(BaseModel):

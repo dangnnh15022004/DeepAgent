@@ -83,7 +83,7 @@ class DeepAIManager:
         )
 
     async def call_tool(self, server_name: str, tool_name: str, arguments: dict) -> str:
-        """Directly invoke a tool by name, bypassing the LLM. Used by the meta path."""
+        """Directly invoke a tool by name, bypassing the LLM."""
         import json
         tool_map = {
             "deeptrace": self.deeptrace_tools,

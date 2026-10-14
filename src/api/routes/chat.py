@@ -913,7 +913,7 @@ def _waiting_response(session_id: str, state) -> JSONResponse:
             "pick_batch": "get_product_batches",
         }
         pick_tool_name = pick_map.get(pick_flag)
-        # place_order uses place_order tool name for meta path
+        # place_order is the only tool that handles HIL picks; route them all here
         if pick_flag in ("pick_product", "pick_variant", "pick_address", "pick_sale"):
             # Check if the last tool call was place_order (deep-sale flow)
             if tool_call and tool_call.get("name") == "place_order":
@@ -990,140 +990,6 @@ def _extract_state_from_tool_call_args(tool_call: dict) -> str:
     return args.get("state", "")
 
 
-async def _run_meta_path(config, meta: dict, token: str, session_id: str):
-    """Call place_order directly (bypass LLM) and render HIL response.
-
-    Used by both the explicit `request.meta` path and the UUID HIL path
-    when the user picks an option from a dropdown.
-    """
-    action = meta.get("action", "")
-    state = meta.get("state", "")
-    keyword = meta.get("keyword", "")
-    product_id = meta.get("product_id", "")
-    variant_id = meta.get("variant_id", "")
-    address_id = meta.get("address_id", "")
-    sale_id = meta.get("sale_id", "")
-    quantity = meta.get("quantity", 0)
-    email = meta.get("email", "")
-    print(f"[Chat] META path: action={action}, state_len={len(state)}, product_id={product_id}, variant_id={variant_id}, address_id={address_id}, sale_id={sale_id}, quantity={quantity}, email={email!r}")
-
-    result_str = await mcp_manager.call_tool(
-        "deepsaleops",
-        "place_order",
-        {
-            "action": action,
-            "access_token": token,
-            "state": state,
-            "keyword": keyword,
-            "product_id": product_id,
-            "variant_id": variant_id,
-            "address_id": address_id,
-            "sale_id": sale_id,
-            "quantity": quantity,
-            "email": email,
-        },
-    )
-    print(f"[Chat] META raw result_str type={type(result_str).__name__} len={len(result_str) if isinstance(result_str, str) else 'N/A'}")
-    print(f"[Chat] META raw result_str preview={result_str[:200] if isinstance(result_str, str) else str(result_str)[:200]}")
-
-    import json as _json
-    try:
-        result = _json.loads(result_str) if isinstance(result_str, str) else result_str
-    except Exception:
-        result = {"status": "error", "message": f"Invalid response from place_order: {result_str}"}
-
-    print(f"[Chat] META parsed result type={type(result).__name__} status={result.get('status') if isinstance(result, dict) else 'N/A'}")
-
-    current_state = await agentic_graph.aget_state(config)
-    user_lang = _state_values(current_state).get("user_lang", "vi") or "vi"
-    hil = _render_status_result(result, user_lang)
-
-    is_terminal = hil.get("is_terminal", False)
-    status = "success" if is_terminal else "WAITING_USER_PICK"
-    return JSONResponse({
-        "status": status,
-        "session_id": session_id,
-        "reply": hil["display_message"],
-        "interrupt_payload": hil,
-    })
-
-
-async def _run_meta_resume(config, meta: dict, token: str, session_id: str):
-    """Call place_order directly (bypass LLM) and render HIL response.
-
-    Used when the user picks an option from a HIL card or uses the Mock
-    shortcut. Bypasses the LLM entirely — faster and deterministic. The
-    state machine advances one step per click until `mock_confirm` creates
-    the order.
-    """
-    action = meta.get("action", "")
-    state = meta.get("state", "")
-    keyword = meta.get("keyword", "")
-    product_id = meta.get("product_id", "")
-    variant_id = meta.get("variant_id", "")
-    address_id = meta.get("address_id", "")
-    sale_id = meta.get("sale_id", "")
-    quantity = int(meta.get("quantity", 0) or 0)
-    email = meta.get("email", "")
-
-    print(f"[Chat] META direct: action={action}, state_len={len(state)}, product_id={product_id}, variant_id={variant_id}")
-
-    # Call place_order MCP tool directly
-    try:
-        result_str = await mcp_manager.call_tool(
-            "deepsaleops",
-            "place_order",
-            {
-                "access_token": token,
-                "action": action,
-                "state": state,
-                "keyword": keyword,
-                "product_id": product_id,
-                "variant_id": variant_id,
-                "address_id": address_id,
-                "sale_id": sale_id,
-                "quantity": quantity,
-                "email": email,
-            },
-        )
-    except Exception as e:
-        return JSONResponse({
-            "status": "error",
-            "session_id": session_id,
-            "reply": f"Lỗi gọi tool: {e}",
-        })
-
-    import json as _json
-    try:
-        result = _json.loads(result_str) if isinstance(result_str, str) else result_str
-    except Exception:
-        result = {"status": "error", "message": f"Invalid response: {result_str}"}
-
-    print(f"[Chat] META direct result: status={result.get('status')}")
-
-    # Render HIL payload
-    status = result.get("status", "")
-    if status in ("success", "created", "error"):
-        msg = result.get("message", "")
-        return JSONResponse({
-            "status": "success" if status in ("success", "created") else "error",
-            "session_id": session_id,
-            "reply": msg,
-        })
-
-    # For select_*/set_*/confirm: render HIL options
-    from src.api.routes.chat import _render_status_result  # type: ignore
-    hil = _render_status_result(result, "vi")
-    is_terminal = hil.get("is_terminal", False)
-    response_status = "success" if is_terminal else "WAITING_USER_PICK"
-    return JSONResponse({
-        "status": response_status,
-        "session_id": session_id,
-        "reply": hil.get("display_message", ""),
-        "interrupt_payload": hil,
-    })
-
-
 # ─── Endpoint ───────────────────────────────────────────────────────────────
 
 
@@ -1139,15 +1005,9 @@ async def chat_endpoint(request: ChatRequest, req: Request):
         user_hash = _hash_token(token)
 
         print(f"[Chat] User hash: {user_hash}, Session: {session_id}")
-        print(f"[Chat] Request: message={request.message!r}, is_resume={request.is_resume}, meta={request.meta}")
+        print(f"[Chat] Request: message={request.message!r}, is_resume={request.is_resume}")
 
         config = _get_graph_config(session_id, token, user_hash)
-
-        # ── Meta path: user picked an option from a HIL card. Call
-        # place_order directly (bypass LLM). Keeps flow fast and
-        # deterministic; the state machine advances one step at a time.
-        if request.meta:
-            return await _run_meta_resume(config, request.meta, token, session_id)
 
         # ── Normal flow: planner → DeepsaleopsAgent → LLM chooses tools
         current_state = await agentic_graph.aget_state(config)
